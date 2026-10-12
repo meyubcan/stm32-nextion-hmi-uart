@@ -1,106 +1,112 @@
-# STM32F407 ile Nextion ekran haberleşmesi
+# Nextion HMI UART protocol for STM32
 
-> [TECH-OHM](https://tech-ohm.com) açık kaynak projesi
+STM32F407 · message framing · command parser · debug log
 
-Nextion dokunmatik ekranla STM32 arasındaki UART protokolünü deneyen yazılım. Bir paketleme makinesinin paneli için hazırladığım ekranı, sensör ve motor bağlamadan önce tek başına doğrulamak için yazdım. Ekrandan gelen her komut ayrıştırılıyor, gerekiyorsa ekrana cevap yazılıyor ve hepsi ikinci bir seri porttan bilgisayara loglanıyor.
+![MCU](https://img.shields.io/badge/MCU-STM32F407VG-03234B?logo=stmicroelectronics&logoColor=white) ![IDE](https://img.shields.io/badge/IDE-STM32CubeIDE-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue) [![TECH-OHM](https://img.shields.io/badge/by-TECH--OHM-FFD400)](https://tech-ohm.com)
 
-Nextion ile çalışan herkesin işine yarayacak kısım mesaj çerçeveleme ve komut ayrıştırma. Tuş takımı, ayar seti ve sayaç mantığı bu projeye özel.
+**English** | [Türkçe](README.tr.md) · An open-source project by [TECH-OHM](https://tech-ohm.com)
 
-## Blok diyagram
+Firmware that exercises the UART protocol between a Nextion touch display and an STM32. I wrote it to verify the screen I designed for a packaging machine panel on its own, before any sensor or motor was connected. Every command from the display is parsed, answered on the display where needed, and logged to a PC over a second serial port.
+
+The parts that are useful to anyone working with Nextion are the message framing and the command parser. The keypad, preset and counter logic is specific to this project.
+
+## Block diagram
 
 ```mermaid
 flowchart LR
-    NX[Nextion ekran] -- "USART2, 9600" --- MCU[STM32F407VG]
-    MCU -- "USART3, 115200" --> PC[Bilgisayar, seri terminal]
-    subgraph SW[Yazılım]
-        RX[RX kesmesi, bayt bayt] --> FR[3 adet 0xFF görünce mesaj tamam]
-        FR --> PARSE[nx_handle: komutu ayrıştır]
-        PARSE --> TX[nx_send: ekrana yaz]
-        PARSE --> LOG[dbg: terminale yaz]
+    NX[Nextion display] -- "USART2, 9600" --- MCU[STM32F407VG]
+    MCU -- "USART3, 115200" --> PC[PC, serial terminal]
+    subgraph SW[Firmware]
+        RX[RX interrupt, byte by byte] --> FR[Message complete after three 0xFF]
+        FR --> PARSE[nx_handle: parse the command]
+        PARSE --> TX[nx_send: write to the display]
+        PARSE --> LOG[dbg: write to the terminal]
     end
 ```
 
-## Pinler
+## Pins
 
-| Kart pini | Bağlandığı yer | Açıklama |
+| MCU pin | Connects to | Notes |
 |---|---|---|
 | PA2 | Nextion RX | USART2 TX, 9600 |
 | PA3 | Nextion TX | USART2 RX |
-| PB10 | USB-TTL RX | USART3 TX, 115200, log çıkışı |
+| PB10 | USB-TTL RX | USART3 TX, 115200, log output |
 | PB11 | USB-TTL TX | USART3 RX |
-| GND | ikisinin de GND ucu | ortak toprak |
+| GND | both grounds | common ground |
 
-Ekranı kartın 5 V pininden değil ayrı bir kaynaktan besle. 7 inç ekran açılışta kartın verebileceğinden fazla akım çekiyor.
+Power the display from a separate supply, not from the board's 5 V pin. A 7 inch display draws more at startup than the board can deliver.
 
-## Mesaj çerçevesi
+## Message framing
 
-Nextion her iki yönde de mesajın sonuna üç tane `0xFF` koyuyor.
+Nextion ends every message with three `0xFF` bytes, in both directions.
 
-İşlemciden ekrana: komut metni ve ardından `FF FF FF`.
+MCU to display: the command text followed by `FF FF FF`.
 
 ```
 n0.val=142 FF FF FF
 ```
 
-Ekrandan işlemciye: Nextion tarafında `print "BF:1"` ve `printh FF FF FF` yazılınca gelen baytlar:
+Display to MCU: with `print "BF:1"` and `printh FF FF FF` on the Nextion side, these bytes arrive:
 
 ```
 42 46 3A 31 FF FF FF
 ```
 
-Alma tarafı kesmeyle bayt bayt çalışıyor. Art arda üç `0xFF` gelince mesaj tamamlanmış sayılıp ana döngüye devrediliyor. Kesme içinde ayrıştırma yapılmıyor. Önceki mesaj daha işlenmediyse yenisi üzerine yazılmıyor, tampon dolarsa sıfırlanıyor.
+Reception works byte by byte in an interrupt. Three `0xFF` in a row mark the end of a message, which is then handed to the main loop. No parsing happens inside the interrupt. A new message does not overwrite one that has not been processed yet, and the buffer resets if it overflows.
 
-Açılışta ekrana `bkcmd=0` gönderiliyor. Bu, Nextion'ın her komuttan sonra döndürdüğü onay ve hata baytlarını kapatıyor, böylece alma tarafına sadece kendi yazdığım mesajlar geliyor.
+At startup the firmware sends `bkcmd=0`. This turns off the acknowledge and error bytes Nextion returns after every command, so only my own messages reach the receiver.
 
-## Ekrandan gelen komutlar
+## Commands from the display
 
-| Komut | Anlamı | İşlemcinin yaptığı |
+| Command | Meaning | What the MCU does |
 |---|---|---|
-| `HOME` | ana sayfa açıldı | saat, ortam sıcaklığı, aktif değerler ve sayaçlar ekrana yazılır |
-| `SETOPEN` | ayarlar sayfası açıldı | iki ayar setinin değerleri yazılır |
-| `REPOPEN` | rapor sayfası açıldı | tarih ve saat yazılır |
-| `KPOPEN:n` | tuş takımı açıldı, n hangi alan için | başlık ve izin verilen aralık yazılır |
-| `K:0` ile `K:9` | rakam tuşu | girilen değer ekranda güncellenir |
-| `K:B`, `K:C`, `K:E` | sil, iptal, onay | onayda aralık kontrolü yapılır |
-| `MTYP:0`, `MTYP:1` | malzeme tipi seçimi | o tipin ayar seti aktif değerlere yüklenir, tekrar basılırsa seçim kalkar |
-| `BF:1`, `BF:0` | bant ileri basıldı, bırakıldı | basışta seçili tipin sayacı bir artar |
-| `BB:1`, `BB:0` | bant geri basıldı, bırakıldı | sadece loglanır |
-| `KB:x`, `KBDEL`, `KBCLR`, `KBOK` | harfli klavye | girilen metin ekranda güncellenir |
-| `SKT:n`, `LANG:n`, `PRN:n`, `FNT:n` | çeşitli seçenekler | sadece loglanır |
+| `HOME` | home page opened | writes time, ambient temperature, active values and counters |
+| `SETOPEN` | settings page opened | writes the values of both presets |
+| `REPOPEN` | report page opened | writes date and time |
+| `KPOPEN:n` | keypad opened, n selects the field | writes the title and the allowed range |
+| `K:0` to `K:9` | digit key | updates the entered value on screen |
+| `K:B`, `K:C`, `K:E` | backspace, cancel, confirm | range check on confirm |
+| `MTYP:0`, `MTYP:1` | material type selected | loads that preset into the active values, a second press deselects |
+| `BF:1`, `BF:0` | belt forward pressed, released | on press the counter of the selected type goes up by one |
+| `BB:1`, `BB:0` | belt reverse pressed, released | logged only |
+| `KB:x`, `KBDEL`, `KBCLR`, `KBOK` | text keyboard | updates the entered text on screen |
+| `SKT:n`, `LANG:n`, `PRN:n`, `FNT:n` | various options | logged only |
 
-Tuş takımından girilen değer aralık dışındaysa kabul edilmiyor ve aralık yazısı kırmızıya çevriliyor: sıcaklık 50 ile 250, kuvvet 0 ile 200, bant hızı 7 ile 15.
+A keypad value outside its range is rejected and the range text turns red: temperature 50 to 250, force 0 to 200, belt speed 7 to 15.
 
-## Ekrana yazılan nesneler
+## Objects written on the display
 
-| Nesne | İçerik |
+| Object | Content |
 |---|---|
-| `n0`, `n1`, `n_spd` | aktif sıcaklık, kuvvet, hız |
-| `n_pos`, `n_tot` | seçili tipin sayacı, toplam sayaç |
-| `t_dt`, `t_amb` | tarih ve saat, ortam sıcaklığı |
-| `t_title`, `t_val`, `t_range` | tuş takımı başlığı, girilen değer, aralık yazısı |
-| `t_m_*`, `t_t_*` | iki ayar setinin değerleri |
-| `bt_med`, `bt_tyv` | malzeme tipi düğmeleri |
+| `n0`, `n1`, `n_spd` | active temperature, force, speed |
+| `n_pos`, `n_tot` | counter of the selected type, total counter |
+| `t_dt`, `t_amb` | date and time, ambient temperature |
+| `t_title`, `t_val`, `t_range` | keypad title, entered value, range text |
+| `t_m_*`, `t_t_*` | values of the two presets |
+| `bt_med`, `bt_tyv` | material type buttons |
 
-Saat ve ortam sıcaklığı gerçek değil. Ekrandaki alanların güncellendiğini görmek için iki saniyede bir, beş kez değişip duruyor.
+Time and ambient temperature are not real. They change every two seconds, five times, so you can see the fields update.
 
-## Kendi ekranına uyarlama
+## Adapting it to your own screen
 
-Nextion tarafındaki `.HMI` dosyası bu depoda yok. Kendi ekranında dokunma olaylarına `print "KOMUT"` ve `printh FF FF FF` satırlarını ekleyip `nx_handle()` içindeki karşılaştırmaları kendi komutlarına göre değiştirmen yeterli. `nx_send()`, `dbg()` ve alma kesmesi olduğu gibi kullanılabilir.
+The Nextion `.HMI` file is not in this repository. On your own screen, add `print "COMMAND"` and `printh FF FF FF` to the touch events and change the comparisons in `nx_handle()` to your commands. `nx_send()`, `dbg()` and the receive interrupt can be used as they are.
 
-## Derleme
+The log text and some identifiers in the code are in Turkish.
 
-STM32CubeIDE'de `File > Import > Existing Projects into Workspace` ile klasörü seç.
+## Build
 
-## Lisans
+In STM32CubeIDE use `File > Import > Existing Projects into Workspace` and select this folder.
 
-MIT. `Drivers` klasöründeki STM32 HAL ve CMSIS dosyaları kendi lisanslarıyla gelir.
+## License
 
-## Yazar
+MIT. The STM32 HAL and CMSIS files under `Drivers` keep their own licenses.
 
-Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com) kurucusu
+## Author
 
-## TECH-OHM
+M. Eyüb Can, embedded systems engineer and founder of [TECH-OHM](https://tech-ohm.com)
 
-[TECH-OHM](https://tech-ohm.com) elektronik kart ve gömülü yazılım tasarlayan bir mühendislik firması. Fikirden seri üretime kadar tasarım işi alıyor, TECH-OHM Akademi'de 12 aylık gömülü sistem eğitimi ve şirketlere özel danışmanlık veriyor.
+## About TECH-OHM
 
-Web: [tech-ohm.com](https://tech-ohm.com) · E-posta: info@tech-ohm.com
+[TECH-OHM](https://tech-ohm.com) designs electronic boards and embedded software, from the first schematic to series production. We also run a 12-month embedded systems training program and consult for engineering teams.
+
+Web: [tech-ohm.com](https://tech-ohm.com) · Email: info@tech-ohm.com
