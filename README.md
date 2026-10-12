@@ -10,7 +10,7 @@ Nextion ile çalışan herkesin işine yarayacak kısım mesaj çerçeveleme ve 
 flowchart LR
     NX[Nextion ekran] -- "USART2, 9600" --- MCU[STM32F407VG]
     MCU -- "USART3, 115200" --> PC[Bilgisayar, seri terminal]
-    subgraph Yazılım
+    subgraph SW[Yazılım]
         RX[RX kesmesi, bayt bayt] --> FR[3 adet 0xFF görünce mesaj tamam]
         FR --> PARSE[nx_handle: komutu ayrıştır]
         PARSE --> TX[nx_send: ekrana yaz]
