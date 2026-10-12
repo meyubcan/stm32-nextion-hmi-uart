@@ -1,5 +1,7 @@
 # STM32F407 ile Nextion ekran haberleşmesi
 
+> [TECH-OHM](https://tech-ohm.com) açık kaynak projesi
+
 Nextion dokunmatik ekranla STM32 arasındaki UART protokolünü deneyen yazılım. Bir paketleme makinesinin paneli için hazırladığım ekranı, sensör ve motor bağlamadan önce tek başına doğrulamak için yazdım. Ekrandan gelen her komut ayrıştırılıyor, gerekiyorsa ekrana cevap yazılıyor ve hepsi ikinci bir seri porttan bilgisayara loglanıyor.
 
 Nextion ile çalışan herkesin işine yarayacak kısım mesaj çerçeveleme ve komut ayrıştırma. Tuş takımı, ayar seti ve sayaç mantığı bu projeye özel.
@@ -95,4 +97,10 @@ MIT. `Drivers` klasöründeki STM32 HAL ve CMSIS dosyaları kendi lisanslarıyla
 
 ## Yazar
 
-Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com)
+Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com) kurucusu
+
+## TECH-OHM
+
+[TECH-OHM](https://tech-ohm.com) elektronik kart ve gömülü yazılım tasarlayan bir mühendislik firması. Fikirden seri üretime kadar tasarım işi alıyor, TECH-OHM Akademi'de 12 aylık gömülü sistem eğitimi ve şirketlere özel danışmanlık veriyor.
+
+Web: [tech-ohm.com](https://tech-ohm.com) · E-posta: info@tech-ohm.com
