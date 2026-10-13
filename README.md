@@ -91,7 +91,7 @@ Time and ambient temperature are not real. They change every two seconds, five t
 
 The Nextion `.HMI` file is not in this repository. On your own screen, add `print "COMMAND"` and `printh FF FF FF` to the touch events and change the comparisons in `nx_handle()` to your commands. `nx_send()`, `dbg()` and the receive interrupt can be used as they are.
 
-The log text and some identifiers in the code are in Turkish.
+A few identifiers in the code are in Turkish.
 
 ## Build
 
